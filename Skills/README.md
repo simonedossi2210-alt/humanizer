@@ -42,7 +42,7 @@ cp SKILL.md ~/.config/opencode/skills/humanizer/
 
 ### Claude Code
 
-```
+```text
 /humanizer
 
 [paste your text here]
@@ -50,7 +50,7 @@ cp SKILL.md ~/.config/opencode/skills/humanizer/
 
 ### OpenCode
 
-```
+```text
 /humanizer
 
 [paste your text here]
@@ -58,7 +58,7 @@ cp SKILL.md ~/.config/opencode/skills/humanizer/
 
 Or ask the model to humanize text directly in either tool:
 
-```
+```text
 Please humanize this text: [your text]
 ```
 
@@ -66,7 +66,7 @@ Please humanize this text: [your text]
 
 To match your personal writing style, provide a sample of your own writing:
 
-```
+```text
 /humanizer
 
 Here's a sample of my writing for voice matching:
