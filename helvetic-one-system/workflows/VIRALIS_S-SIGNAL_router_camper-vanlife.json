@@ -1,0 +1,238 @@
+{
+  "name": "VIRALIS - S.SIGNAL Router (Nicchia Camper/Vanlife)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 6
+            }
+          ]
+        }
+      },
+      "id": "trigger-schedule",
+      "name": "Ogni 6 ore",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [-200, 300]
+    },
+    {
+      "parameters": {
+        "url": "https://www.reddit.com/r/vandwellers/top.json",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            { "name": "limit", "value": "15" },
+            { "name": "t", "value": "day" }
+          ]
+        },
+        "options": {
+          "headers": {
+            "parameters": [
+              { "name": "User-Agent", "value": "VIRALIS-SignalBot/1.0" }
+            ]
+          }
+        }
+      },
+      "id": "http-reddit-vandwellers",
+      "name": "Fetch Reddit r/vandwellers",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [80, 100]
+    },
+    {
+      "parameters": {
+        "url": "https://www.reddit.com/r/CamperVans/top.json",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            { "name": "limit", "value": "15" },
+            { "name": "t", "value": "day" }
+          ]
+        },
+        "options": {
+          "headers": {
+            "parameters": [
+              { "name": "User-Agent", "value": "VIRALIS-SignalBot/1.0" }
+            ]
+          }
+        }
+      },
+      "id": "http-reddit-campervans",
+      "name": "Fetch Reddit r/CamperVans",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [80, 300]
+    },
+    {
+      "parameters": {
+        "url": "https://scscamper.ch/blog",
+        "options": {}
+      },
+      "id": "http-competitor",
+      "name": "Fetch Blog SCS Camper (HTML)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [80, 500]
+    },
+    {
+      "parameters": {
+        "operation": "extractHtmlContent",
+        "extractionValues": {
+          "values": [
+            {
+              "key": "titoli",
+              "cssSelector": "h1, h2, h3, article a",
+              "returnArray": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "html-extract-competitor",
+      "name": "Estrai Titoli Competitor",
+      "type": "n8n-nodes-base.html",
+      "typeVersion": 1.2,
+      "position": [280, 500]
+    },
+    {
+      "parameters": {
+        "numberInputs": 3,
+        "mode": "combine",
+        "combinationMode": "multiplex"
+      },
+      "id": "merge-signals",
+      "name": "Merge Fonti",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [480, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Normalizza fonti camper/vanlife in schema comune per tabella `signals`\nconst output = [];\n\n// Calendario stagionale per priorita' automatica (Ticino/Svizzera)\nfunction stagionePriority() {\n  const mese = new Date().getMonth() + 1; // 1-12\n  if (mese >= 2 && mese <= 4) return 'high';   // prep primavera\n  if (mese >= 5 && mese <= 9) return 'high';   // stagione viaggi\n  return 'medium';                              // ott-gen, contenuti tecnici\n}\n\nfor (const item of $input.all()) {\n  const json = item.json;\n\n  // Reddit (ha campo data.children)\n  if (json.data && json.data.children) {\n    for (const post of json.data.children) {\n      const p = post.data;\n      output.push({\n        json: {\n          source: `reddit_${p.subreddit}`,\n          title: p.title,\n          url: `https://reddit.com${p.permalink}`,\n          category: 'community_trend',\n          priority: p.ups > 100 ? 'high' : 'medium',\n          raw_score: p.ups,\n          created_at: new Date().toISOString()\n        }\n      });\n    }\n  }\n\n  // Competitor blog (dopo HTML Extract, ha campo 'titoli' array)\n  if (json.titoli) {\n    const titoli = Array.isArray(json.titoli) ? json.titoli : [json.titoli];\n    for (const t of titoli) {\n      if (!t || t.trim().length < 5) continue;\n      output.push({\n        json: {\n          source: 'competitor_scscamper',\n          title: t.trim(),\n          url: 'https://scscamper.ch/blog',\n          category: 'competitor_move',\n          priority: 'high',\n          raw_score: null,\n          created_at: new Date().toISOString()\n        }\n      });\n    }\n  }\n}\n\nreturn output;"
+      },
+      "id": "code-normalize",
+      "name": "Normalizza Segnali",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "tableId": "signals",
+        "dataToSend": "autoMapInputData"
+      },
+      "id": "supabase-insert",
+      "name": "Salva su Supabase (signals)",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [900, 300],
+      "credentials": {
+        "supabaseApi": {
+          "id": "PLACEHOLDER_CREDENTIAL_ID",
+          "name": "Supabase VIRALIS"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.priority }}",
+              "rightValue": "high",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "if-priority",
+      "name": "Priorita Alta?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [1120, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.notion.com/v1/pages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Notion-Version", "value": "2022-06-28" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"parent\": { \"database_id\": \"PLACEHOLDER_NOTION_DB_ID\" },\n  \"properties\": {\n    \"Titolo\": { \"title\": [ { \"text\": { \"content\": \"{{ $json.title }}\" } } ] },\n    \"Fonte\": { \"select\": { \"name\": \"{{ $json.source }}\" } },\n    \"URL\": { \"url\": \"{{ $json.url }}\" }\n  }\n}",
+        "options": {}
+      },
+      "id": "notion-highpriority",
+      "name": "Notifica S.STRATEGIST (Notion)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1360, 200],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "PLACEHOLDER_CREDENTIAL_ID",
+          "name": "Notion API Key"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Ogni 6 ore": {
+      "main": [
+        [
+          { "node": "Fetch Reddit r/vandwellers", "type": "main", "index": 0 },
+          { "node": "Fetch Reddit r/CamperVans", "type": "main", "index": 0 },
+          { "node": "Fetch Blog SCS Camper (HTML)", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Fetch Reddit r/vandwellers": {
+      "main": [[{ "node": "Merge Fonti", "type": "main", "index": 0 }]]
+    },
+    "Fetch Reddit r/CamperVans": {
+      "main": [[{ "node": "Merge Fonti", "type": "main", "index": 1 }]]
+    },
+    "Fetch Blog SCS Camper (HTML)": {
+      "main": [[{ "node": "Estrai Titoli Competitor", "type": "main", "index": 0 }]]
+    },
+    "Estrai Titoli Competitor": {
+      "main": [[{ "node": "Merge Fonti", "type": "main", "index": 2 }]]
+    },
+    "Merge Fonti": {
+      "main": [[{ "node": "Normalizza Segnali", "type": "main", "index": 0 }]]
+    },
+    "Normalizza Segnali": {
+      "main": [[{ "node": "Salva su Supabase (signals)", "type": "main", "index": 0 }]]
+    },
+    "Salva su Supabase (signals)": {
+      "main": [[{ "node": "Priorita Alta?", "type": "main", "index": 0 }]]
+    },
+    "Priorita Alta?": {
+      "main": [
+        [{ "node": "Notifica S.STRATEGIST (Notion)", "type": "main", "index": 0 }],
+        []
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}
